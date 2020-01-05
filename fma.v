@@ -7,12 +7,13 @@ Require Import Coq.Program.Equality.
 Require Import Arith_base.
 Require Import Vectors.Fin.
 Require Import Vectors.VectorDef.
+Require Import Bool.
 
-Class Lex (A : Set) (FCross : A -> A -> A) (Cp : A -> A -> bool) : Prop := {
+Class Lex (A : Set) (FCross : A -> A -> A) (CP : A -> A -> Prop) : Prop := {
     transformable : forall (x : A), {P | x <> P x};
     anti_identity : forall (x y : A), x <> y -> x <> FCross x y;
-    convergent_equality : forall (x y : A), Cp x y = true -> x = y;
-    identity : forall (y : A), {x | (Cp x y = false) -> FCross x y = y}
+    convergent_equality : forall (x y : A), CP x y -> x = y;
+    identity : forall (y : A), {x | ~ (CP x y) -> FCross x y = y}
 }.
 
 Class Agent {A : Set} {f : A -> A -> A} {f'} (H : Lex f f') (T : Set) := {
@@ -36,20 +37,28 @@ Record Functions : Type := F' {
    flang : H A -> H A
 }.
 
-Record Interation {x y} k (x' : C k x) (y' : C k y) (P : Functions) : Prop := I' {
-    consistency_action : forall (H' : Perception x' y' = true),
-                Action x' y' ((faction P) k);
+Record Interation x y k (P : Functions) : Prop := I' {
+    consistency_action : forall (x' : C ((flang P) k) x) (y' : C ((flang P) k) y) (H' : Perception x' y' = true),
+                Action x' y' ((faction P) ((flang P)k));
 
-    knowlegde : forall (a : C ((flang P) k) x)  (H' : Perception x' y' = true),
+    knowlegde : forall (x' : C k x) (y' : C k y) (a : C ((flang P) k) x)  (H' : Perception x' y' = true),
          memory (point a)  = (f (memory (point x')) (memory ((point y'))))
   
 }.
 
-Class Environment := {
+Class Environment (k : H A) (H' : Functions) : Prop := {
   inhabited : forall (x : H A), {b | C x b};
-  iterate : forall {x y : B} (k : H A) (x' : C k x) (y' : C k y), {H | Interation x' y' H}; 
+  iterate : forall {x y : B}  (x' : C k x) (y' : C k y), Interation x y k H'; 
 
 }.
+
+Notation "f ∘ g" := (fun x => f (g x)) (at level 80, right associativity).
+
+Class State {f' g'} {k} := {
+  inductive_environment : 
+    Environment k (F' f' g') /\ (forall k (x :  Environment k (F' f' g')), Environment ((g' ∘ f') k) (F' f' g'));
+}.
+
 
 End Env.
 
@@ -110,6 +119,17 @@ refine (H1 x).
 refine (H2 x y).
 Defined.
 
+Definition case_2t {A} (P : forall n, t A (S n) -> t A (S n) -> Type) 
+    (H' : forall n a b (t t' : t A n), P _ (a :: t) (b :: t'))
+   : forall n (x y : t A (S n)), P _ x y.
+move => n x.
+refine (match x in (t _ (S n)) return (forall (y : (t A (S n))), P n x y) with 
+  |@cons _ k q c => _
+ end).
+elim/@caseS'.
+intros.
+refine (H' _ k h _ _).
+Defined.
 
 Definition rect_SS' {A} (P : forall n, t A (S n) -> Type)
   (H : forall n h a (t : t A (S n)), P _ t -> P _ (a :: h :: t)) (H' : forall h, @P 0 [h]) (H1' : forall h v, @P 1 [h; v]) : forall n (x : t A (S n)), P _ x. 
@@ -170,39 +190,6 @@ elim/@case0 : y'.
 refine (bas a b).
 exact idProp.
 Defined.
-
-(*
-Definition rect2_binary_lex (P : forall n, t binary n -> t binary n -> Type)
- (base : forall (h h' : binary), P _ (cons _ h 0 (nil _)) (cons _ h' 0 (nil _)))
- (H' : forall (h h' : binary) (n1 : nat) t t0, P (S n1) t t0 -> P _ (cons _ h _ t) (cons _ h' _ t0))
- :
- forall n (x : t binary (S n)) (y : t binary (S n)), P _ x y.
-
- refine (fix rectS_fix {n} (v: t binary (S n)) {struct v} := _).
- intros.
- have : ((fun a n (x : t a n) => match x with 
-       |cons _ _ n _ => (S n)
-       |nil _ => 0
-     end) _ _ v >= 1
- ).
- elim/@caseS : v.
- intros.
- auto with arith.
- move => H1'.
-
- elim/@rect2 : v/y.
- intros.
-   have : ~ 0 >= 1.
-   move => f'.
-   inversion f'.
- tauto.
- intros; destruct n0; clear X.
- elim/@case0 : v1.
- elim/@case0 : v2.
- refine (base a b).
- refine (H' a b _ _ _ (rectS_fix _ v1 v2)).
-Defined.
-*)
 
 Fixpoint cross_binary_vector {n} (x : t binary (S n)) (y : t binary (S n)) : t binary (S n).
 elim/@rect_2S  : x/y.
@@ -333,6 +320,10 @@ elim/b_rect : a/b.
  - intros; simpl in *; congruence.
 Qed.
 
+Definition lex_prop : forall (n : nat), lex n -> lex n -> Prop.
+intros.
+exact (lex_binary H H0 = true).
+Defined.
 
 Fixpoint imperfect_binary_cpy {n} (x : t binary (S n)) : t binary (S n).
 elim/@rectS : x.
@@ -418,7 +409,7 @@ intros.
 inversion H2.
 Qed.
 
-Instance binary_lex : forall x, Lex (@cross_lex x) (@lex_binary x).
+Instance binary_lex : forall x, Lex (@cross_lex x) (@lex_prop x).
  {
  
   constructor.
@@ -443,6 +434,7 @@ Instance binary_lex : forall x, Lex (@cross_lex x) (@lex_binary x).
 
   (*Convergence implies to definitional equality *)
   intros.
+  unfold lex_prop in H.
   exact (lex_eq H).
 
   (*Existence of Convergence aproximation from x to y*)
@@ -451,6 +443,8 @@ Instance binary_lex : forall x, Lex (@cross_lex x) (@lex_binary x).
   destruct (unique_binary_object_convergent_complement t).
   exists (lex' x0).
   move => H'.
+  unfold lex_prop in H'.
+  apply not_true_is_false  in H'.
     have : x0 <> t.
     set (neg_of_convergent_lex H'); congruence.
   move => H.
@@ -574,15 +568,82 @@ refine (shiftin (hd v) (tail v)).
 Defined.
 
 
-(*Definition rect3S {A} (P : forall n, t A (S n) -> Prop) (H : forall x, P [x]) (H' : forall x y, P [x; y])
-   (H1' : forall n (v : t A , *)
+Theorem inj : forall n l (x y : t (SAgent n) (S l)), shift x = shift y -> x = y.
+  have : forall a b v1 v2, shiftin a v1 = shiftin b v2 -> v1 = v2 /\ a = b.
+  intros.
+  move : H.
+  elim/@rect2 : v1/v2.
+  constructor; trivial.
+  simpl in H; congruence.
+  intros.
+  simpl in *.
+  pose (fun n (x : t T (S n)) => match x in (t _ (S n)) with
+     |@cons _ _ _ y => y
+   end).
+  pose (fun n (x : t T (S n)) => match x in (t _ (S n)) with
+     |@cons _ x _ _ => x
+   end).
+ set (f_equal (@y0 _) H0).
+ set (f_equal (@y _) H0).
+ simpl in *.
+ apply H in e0.
+ destruct e0.
+ constructor.
+ congruence.
+ trivial.
 
-Require Import Coq.Bool.Bool.
+intros; move : H.
+elim/@rect_2S : x0/y.
+trivial.
+intros.
+destruct n0.
+simpl in H0; injection H0; move : H H0.
+elim/@caseS' : v1; elim/@caseS' : v2.
+move => h t h0 t0.
+elim/@case0 : t; elim/@case0 : t0.
+intros.
+simpl in *; subst; trivial.
+simpl in *.
+destruct n0.
+by destruct (@x _ _ a b _ _ H0); subst.
+by destruct (@x _ _ a b _ _ H0); subst.
+Qed.
 
-Compute get_agent.
+Theorem shift_back : forall n s (x : t (SAgent s) (S n)) (H : n < S n) (H' : 0 < S n), (shift x)[@of_nat_lt H] = x[@of_nat_lt H'].
+move => n s.
+elim/@rect_SS'.
+intros;simpl in *; apply : shift_hd_get'.
+done.
+done.
+Qed.
 
-Instance SEnvironment : forall x y,
-   @Environment _ _ _ _ _ _ (fun x => t x (S y)) boundness get_agent (@view _ _) (@action_prop _ _) (SAgent' x).
+Theorem law1 : forall l y (k : t (SAgent l) (S y)) (x' : y < S y) (y' : 0 < S y), get_agent (match_lex k) y' = get_agent (shift (match_lex k)) x'.
+  intros.
+  move : x' y'.
+  unfold get_agent.
+  unfold nth_order.
+  elim/@rectS : k.
+  done.
+  destruct n.
+  done.
+  simpl; unfold caseS'.
+  elim/@caseS'.
+  intros;move : H; elim/@caseS' : t.
+  intros;symmetry.
+  apply : shift_hd_get'.
+Qed.
+
+Theorem law2 : forall  l y (k : t (SAgent l) (S y)) (x' : y < S y) (y' : 0 < S y), agent_lex (match_lex k)[@of_nat_lt y'] = cross_lex (agent_lex k[@of_nat_lt y']) (agent_lex k[@of_nat_lt x']).
+  move => l y.
+  elim/@rectS.
+  intros; trivial.
+  intros; simpl in *.
+  by rewrite (of_nat_lt_c (lt_S_n n (S n) (le_n (S (S n)))) (lt_S_n n (S n) x')).
+Qed.
+
+Instance SEnvironment : forall x y (k : t (SAgent x) (S y)),
+   @Environment _ _ _ _ _ _ (
+  fun x => t x (S y)) boundness get_agent (@view _ _) (@action_prop _ _) (SAgent' x) k (F' shift match_lex).
 {
   constructor.
   exists 0.
@@ -590,69 +651,78 @@ Instance SEnvironment : forall x y,
   unfold boundness.
   auto with arith.
   intros.
-  exists (F' shift match_lex).
   constructor;intros.
   unfold view in H'.
   unfold action_prop.
-  intros.
+  
   unfold boundness in *.
-  move : H' x' y' k.
+  simpl.
+  clear x' y'.
+  move : x'0 y'0 H'.
+  destruct y.
   elim/@case_2nat : x0/y0.
   intros.
-  destruct y.
-  simpl in *.
-  trivial.
-  move : H' y' x'.
-  intros; simpl; inversion H'.
+  simpl.
+  elim/@caseS' : k.
+  unfold get_agent.
+  pose (of_nat_lt_c x'0 y'0).
+  tauto.
   intros.
-  trivial.
-  intros;inversion H'.
-  intros;inversion H'.
+  inversion H'.
+  intros; inversion H'.
+  intros; inversion H'.
+  
+  intros.
   apply andb_true_iff in H'.
   destruct H'.
-  apply beq_nat_true in H2.
+  apply beq_nat_true in H.
+  apply beq_nat_true in H0.
   subst.
-  move : y' x' H H1.
-  elim/@rect_SS' : k.
-  intros; simpl in *.
-  unfold get_agent; unfold nth_order.
-  simpl in *; symmetry.
-  pose(shift_hd_get' t (lt_S_n n (S n) (lt_S_n (S n) (S (S n)) y')) a).
-  done.
-  done.
-  done.
-  done.
-  done.
-  
+  move : x'0 y'0.
+  intros; apply : law1.
+ 
   simpl in *.
-  unfold get_agent; unfold nth_order.
-    have : of_nat_lt a = of_nat_lt x'.
-    apply of_nat_lt_c.
-  intros.
-  unfold boundness in x'.
-
+  unfold boundness in *.
+  unfold view in H'.
   apply andb_true_iff in H'.
   destruct H'.
   apply beq_nat_true in H; apply beq_nat_true in H0.
-  subst;rewrite x1.
-  clear a x1; move : x' y'.
-  
-  elim/@rectS : k.
-  intros.
-  trivial.
-  intros. 
-  simpl in *.
-  rewrite (of_nat_lt_c (lt_S_n n (S n) (le_n (S (S n)))) (lt_S_n n (S n) y')).
-  trivial.
+  subst.
+ 
+  unfold get_agent; unfold nth_order.
+    have : of_nat_lt a = of_nat_lt x'0.
+    apply of_nat_lt_c.
+  move => H2; rewrite H2.
+  apply : law2.
 }
-
+ 
 Defined.
 
+Instance SUniverse : forall x y (v : t (SAgent x) (S y)), @State _ _ _ _ _ _ (
+  fun x => t x (S y)) boundness get_agent (@view _ _) (@action_prop _ _) (SAgent' x) shift match_lex v.
+constructor.
+intros.
 
-
-
-
-
-
-
+constructor.
+(*when P(0) for environment *)
+apply : SEnvironment.
+intros.
+constructor.
+(*when P k -> P (k + 1), for the environment *)
+unfold boundness in *.
+move => H2; exists y; auto with arith.
+intros; constructor; simpl.
+intros;unfold action_prop; unfold boundness in *; apply andb_true_iff in H'.
+destruct H'.
+apply beq_nat_true in H; apply beq_nat_true in H0.
+subst.
+(*both law1 and law2 proofs of inductive interaction was straightfoward, once law1 and law2 were 
+    strong enough to generalization of any type obeying just the type constaint *)
+apply : law1.
+intros; unfold boundness in *; apply andb_true_iff in H'.
+destruct H'.
+apply beq_nat_true in H; apply beq_nat_true in H0.
+subst.
+apply : law2.
+Defined.
 
