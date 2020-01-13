@@ -10,10 +10,10 @@ Require Import Vectors.VectorDef.
 Require Import Bool.
 
 Class Lex (A : Set) (FCross : A -> A -> A) (CP : A -> A -> Prop) : Prop := {
-    transformable : forall (x : A), {P | x <> P x};
-    anti_identity : forall (x y : A), x <> y -> x <> FCross x y;
-    convergent_equality : forall (x y : A), CP x y -> x = y;
-    identity : forall (y : A), {x | ~ (CP x y) -> FCross x y = y}
+    transformable : forall (x : A), {P | ~ CP x (P x)};
+    anti_identity : forall (x y : A), ~ CP x y -> ~ CP x (FCross x y);
+    convergent_equality : forall (x y : A), x = y -> CP x y;
+    crossover_identity : forall (y : A), {x | ~ (CP x y) -> CP (FCross x y) y}
 }.
 
 Class Agent {A : Set} {f : A -> A -> A} {f'} (H : Lex f f') (T : Set) := {
@@ -28,7 +28,7 @@ Variable K : Lex f f'.
 Variable H : Set -> Set.
 Variable C : H A -> B -> Prop.
 Variable point : forall x y , C x y -> A.
-Variable Perception : forall {x y : B} (k : H A), C k x -> C k y -> bool.
+Variable Perception : forall {x y : B} (k : H A), C k x -> C k y -> Prop.
 Variable Action : forall {x y : B} (k : H A) (x' : C k x) (y' : C k y), H A -> Prop.
 Variable AG : Agent K A.
 
@@ -38,18 +38,19 @@ Record Functions : Type := F' {
 }.
 
 Record Interation x y k (P : Functions) : Prop := I' {
-    consistency_action : forall (x' : C ((flang P) k) x) (y' : C ((flang P) k) y) (H' : Perception x' y' = true),
+    consistency_action : forall (x' : C ((flang P) k) x) (y' : C ((flang P) k) y) (H' : Perception x' y'),
                 Action x' y' ((faction P) ((flang P)k));
 
-    knowlegde : forall (x' : C k x) (y' : C k y) (a : C ((flang P) k) x)  (H' : Perception x' y' = true),
+    knowlegde : forall (x' : C k x) (y' : C k y) (a : C ((flang P) k) x)  (H' : Perception x' y'),
          memory (point a)  = (f (memory (point x')) (memory ((point y'))))
   
 }.
 
 Class Environment (k : H A) (H' : Functions) : Prop := {
   inhabited : forall (x : H A), {b | C x b};
+  active : forall (k : H A), {y : (B * B) | {c : (C k (fst y) * C k (snd y)) | Perception (fst c) (snd c)}};
   iterate : forall {x y : B}  (x' : C k x) (y' : C k y), Interation x y k H'; 
-
+  
 }.
 
 Notation "f ∘ g" := (fun x => f (g x)) (at level 80, right associativity).
@@ -355,7 +356,72 @@ congruence.
 Qed.
 
 
-Theorem neg_of_convergent_lex : forall n (x : lex n) y, lex_binary x y = false -> x <> y.
+Theorem neg_of_convergent_lex : forall n (x : lex n) y, x <> y -> lex_binary x y = false.
+
+  have : forall x y, lex_binary x y = false -> ~ lex_binary x y = true.
+  move => n0 x0 y0.
+  destruct (lex_binary x0 y0).
+  move => h2.
+  inversion h2.
+  move => H2 H3.
+  inversion H3.
+
+intros.
+destruct x0.
+destruct y.
+move : H.
+elim/@rect_2S : t/t0.
+move => x0 y.
+elim/@b_rect : x0/y.
+intros.
+destruct H.
+auto.
+intros.
+destruct H.
+auto.
+auto.
+intros.
+done.
+intros.
+move : H H0.
+pose (fun n (x : t binary (S n)) => match x in t _ (S n) with
+  |a :: b => b
+ end).
+pose (fun n (x : t binary (S n)) => match x in t _ (S n) with
+  |a :: b => a
+ end).
+  have : forall x v v', lex' (x :: v) <> lex' (x :: v') -> lex' v <> lex' v'.
+  case => n1. elim/@caseS'.
+  move => h n2; elim/@caseS'.
+  move => h0; elim/@case0.
+  elim/@case0 : n2.
+  intros; move => H2.
+  injection H2; move => n2; subst.
+  by contradiction H.
+  intros.
+  move => H2'.
+     have : v = v'.
+     congruence.
+  move => H3; rewrite H3 in H.
+  by contradiction H.
+move => H2'.
+elim/@b_rect : a/b.
+intros; simpl in *; apply H2' in H0.
+tauto.
+intros; apply H2' in H0; tauto.
+intros; trivial.
+intros; trivial.
+Qed.
+
+Theorem lex_binary_eqv : forall {n} (m : lex n), lex_binary m m = true.
+  intros.
+  destruct m.
+  elim/@rectS : t.
+  by destruct a.
+  by elim.  
+Qed.
+
+Theorem neg_of_convergent_lex' : forall n (x : lex n) y, lex_binary x y = false -> x <> y.
 
   have : forall x y, lex_binary x y = false -> ~ lex_binary x y = true.
   move => n0 x0 y0.
@@ -419,23 +485,34 @@ Instance binary_lex : forall x, Lex (@cross_lex x) (@lex_prop x).
   pose (_not_conservation x0).
   destruct s.
   exists (x1 x).
+  apply not_true_iff_false.
+  apply (neg_of_convergent_lex).
   trivial.
   
   (*Anti-identity proof of crossover function *)
   intros.
   destruct x0.
   destruct y.
-    have : t <> t0. 
+  unfold lex_prop in *.
+  apply not_true_iff_false.
+  
+  apply not_true_is_false in H.
+  apply neg_of_convergent_lex.
+  apply neg_of_convergent_lex' in H.
+  move => H2.
+  unfold cross_lex in H2.
+    have : t <> t0.
     congruence.
-  intros.
-  unfold cross_lex.
-  injection.
-  exact (crossover_binary x0).
+  move => H2'.
+  pose (@crossover_binary _ _ _ H2').
+  congruence.
 
   (*Convergence implies to definitional equality *)
   intros.
-  unfold lex_prop in H.
-  exact (lex_eq H).
+  unfold lex_prop.
+  rewrite H.
+  clear H x0.
+  apply : lex_binary_eqv.
 
   (*Existence of Convergence aproximation from x to y*)
   intros.
@@ -443,14 +520,16 @@ Instance binary_lex : forall x, Lex (@cross_lex x) (@lex_prop x).
   destruct (unique_binary_object_convergent_complement t).
   exists (lex' x0).
   move => H'.
-  unfold lex_prop in H'.
+  unfold lex_prop in *.
+  
   apply not_true_is_false  in H'.
     have : x0 <> t.
-    set (neg_of_convergent_lex H'); congruence.
+    set (neg_of_convergent_lex' H'); congruence.
   move => H.
   apply e in H.
   unfold cross_lex.
-  congruence.
+  rewrite H.
+  apply : lex_binary_eqv.
 }
 Defined.
 
@@ -486,7 +565,7 @@ Definition get_agent {n} {l} (ls : t (SAgent n) l) (y : nat) (H : y < l) : SAgen
 Definition boundness {n} {l} (ls : t (SAgent n) l) (y : nat) : Prop := y < l.
 
 Definition view {l} {n} {y} {y'} (v : t (SAgent n) (S l)) (H : y < (S l)) (H' : y' < (S l)) := 
-  (y =? 0) && (y' =? l).
+  (y =? 0) && (y' =? l) = true.
 
 Definition match_lex {l} {n} (v : t (SAgent n) (S l)) : t (SAgent n) (S l).
 
@@ -650,6 +729,15 @@ Instance SEnvironment : forall x y (k : t (SAgent x) (S y)),
   elim/@caseS : x0.
   unfold boundness.
   auto with arith.
+  
+  intros. 
+  unfold boundness in *.
+  exists (0, y).
+  exists (Nat.lt_0_succ y, @le_n (S y)).
+  unfold view.
+  simpl.
+  apply : Nat.eqb_refl.
+  
   intros.
   constructor;intros.
   unfold view in H'.
@@ -711,6 +799,8 @@ constructor.
 (*when P k -> P (k + 1), for the environment *)
 unfold boundness in *.
 move => H2; exists y; auto with arith.
+intros; unfold boundness in *; exists (0, y); exists (Nat.lt_0_succ y, @le_n (S y)).
+unfold view; apply : Nat.eqb_refl.
 intros; constructor; simpl.
 intros;unfold action_prop; unfold boundness in *; apply andb_true_iff in H'.
 destruct H'.
